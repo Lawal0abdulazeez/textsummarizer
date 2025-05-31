@@ -5,16 +5,18 @@ on:
     branches: [ main ]
 
 env:
-  AZURE_CONTAINER_REGISTRY: <your-registry-name>.azurecr.io
-  CONTAINER_NAME: simple-app
+  AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+  CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  AZURE_REGION: ${{ secrets.AZURE_REGION }}
 
 jobs:
   build-and-deploy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest  # Recommended over self-hosted unless you have specific needs
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4  # Updated to latest version
 
     - name: Login to Azure
       uses: azure/login@v1
@@ -28,9 +30,10 @@ jobs:
         username: ${{ secrets.AZURE_CLIENT_ID }}
         password: ${{ secrets.AZURE_CLIENT_SECRET }}
     
-    - run: |
-        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:latest .
-        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:latest
+    - name: Build Docker image
+      run: |
+        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:${{ github.sha }} .
+        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:${{ github.sha }}
 
     - name: SSH into VM and deploy
       uses: appleboy/ssh-action@master
@@ -42,8 +45,11 @@ jobs:
           docker login ${{ env.AZURE_CONTAINER_REGISTRY }} \
             -u ${{ secrets.AZURE_CLIENT_ID }} \
             -p ${{ secrets.AZURE_CLIENT_SECRET }}
-          docker pull ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:latest
+          docker pull ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:${{ github.sha }}
           docker stop ${{ env.CONTAINER_NAME }} || true
           docker rm ${{ env.CONTAINER_NAME }} || true
-          docker run -d -p 80:80 --name ${{ env.CONTAINER_NAME }} \
-            ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:latest
+          docker run -d \
+            -p 80:80 \
+            --name ${{ env.CONTAINER_NAME }} \
+            --restart unless-stopped \
+            ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:${{ github.sha }}
